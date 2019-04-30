@@ -1,40 +1,41 @@
+(in-package :cl-user)
+
 (defpackage #:gendocs
-  (:use #:cl)
-  (:export :gendocs))
-(in-package :gendocs)
+  (:use #:cl #:docparser)
+  (:export #:gendocs))
+
+(in-package #:gendocs)
+
 (define-symbol-macro nl (format nil "~%"))
+(defun gendocs (package template output &optional (template-flag "<TEMPL>"))
+  (file-replace template-flag (md-docstrings package) template output))
 (defun slurp (file)
-  (with-open-file (i file)
-    (read-sequence (make-array 64 :element-type 'character :adjustable t)
-                   i)))
-(defun gendocs (inputs-pathlist packages outputs-pathlist
-                &optional (delimiters '(#\< . #\>)))
-  (loop for p in packages
-        for i in inputs-pathlist
-        for o in outputs-pathlist
-        do (template-replace i
-                             o
-                             (md-docstrings p)
-                             delimiters)))
+  (let ((str (make-array 0 :element-type 'character :adjustable t :fill-pointer 0)))
+    (with-open-file (i file)
+      (loop for x = #1=(read-line i nil nil) then #1#
+            do (when x (setf str (concatenate 'string str x nl)))
+            until (not x)))
+    str))
+
 (defun md-docstrings (package)
-  (let ((pairs (read-docstrings package)))
-    (loop for p in pairs
-          collect (concatenate 'string nl
-                               "`" (car p) "`" nl
-                               (cdr p) nl))))
-(defun read-docstrings (package)
-  "Read the docstrings from a file"
-  (loop for x being the external-symbols of package
-        collect (cons (symbol-name x) (documentation x 'function))))
-(defun template-replace (input output replacement-string delimiters)
-  (with-open-file (o output :direction :output)
-    (write-sequence (str-replace (concatenate 'string
-                                              (string (car delimiters))
-                                              (pathname-name input)
-                                              (string (cdr delimiters)))
-                                 replacement-string
-                                 (slurp input))
-                    o)))
+  (let ((col nil))
+    (do-packages (package (parse package))
+      (do-nodes (n package)
+        (push (format nil "~%") col)
+        (push (node-docstring n) col)
+        (push (format nil "~%") col)
+        (push (format nil "~%") col)
+        (push "`" col)
+        (push (symbol-name (node-name n)) col)
+        (push "`" col)
+        (push (format nil "~%") col)))
+    (print col)
+    (apply #'concatenate 'string col)))
+(defun file-replace (from to filein fileout)
+  (with-open-file (i filein)
+    (let ((str (slurp i)))
+      (with-open-file (o fileout :direction :output :if-exists :overwrite)
+        (write-string (str-replace from to str) o)))))
 (defun str-replace (from to source)
   (let ((loc (search from source)))
     (concatenate 'string
